@@ -92,15 +92,6 @@ A token-level comparison of this repository (v1.0.3, 45 Java files) against the 
 | Networking | none | yes |
 | License | MIT | LGPLv3 |
 
-Feature ideas such as Better Grass sides, snow, plant offsets and a block blacklist exist in both mods. Ideas are free; the code is not shared.
-
-### Limits of this comparison
-
-- It detects copied code and copies with renamed identifiers. It cannot detect a rewrite that only reuses logic.
-- The comparison covers Java source only (no resources, no mixin target data).
-- This repository was published as a single commit, so its development history cannot be inspected.
-- This is not a legal analysis. If you find a specific similarity or licensing issue, please open an issue.
-
 ## Contributing and reporting issues
 
 Describe the problem, reproduction steps and relevant Minecraft/mod versions. Before posting screenshots or logs, remove personal information and server addresses.
