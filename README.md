@@ -63,6 +63,44 @@ Actual integrated-singleplayer movement checks cover uphill walking at 25/80/100
 
 See [CHANGELOG.md](CHANGELOG.md) for this release's changes and the scope of performance measurements.
 
+## Relationship to NoCubes
+
+Smooth Terrain is an independent mod inspired by the idea of rounded Minecraft terrain, first popularised by NoCubes by Cadiboo (LGPLv3). No NoCubes code or artwork is included. Smooth Terrain does not require or work together with NoCubes.
+
+It is developed with the help of AI coding agents (Codex) by a non-programmer author.
+
+### Source comparison
+
+A token-level comparison of this repository (v1.0.3, 45 Java files) against the NoCubes `master` branch (122 Java files, build `38904f7`, 2024-08-20) found no copied code.
+
+| Check | Result |
+|---|---|
+| NoCubes class and method names (`SDFMesher`, `SurfaceNets`, `NoCubesConfig`, `isSmoothable`, …) in this repo | 0 matches (and 0 the other way round) |
+| Shared declared names | 19, all generic (Mixin plugin methods, `add`, `close`, `load`, …) |
+| Identical comment lines | 0 |
+| Identical string literals | 3, all JVM descriptors of Minecraft methods that both mods hook via Mixin |
+| Longest identical code run | 21 tokens (Mixin annotations); only 2 runs of 20+ tokens, none of 30+ |
+| Same structure with renamed identifiers | 5 runs of 30+ tokens, longest 36; manually checked: Mixin annotations, a standard `for` loop, a small index table, variable assignments |
+| Control comparison against an unrelated Fabric mod (Mod Menu) | 2 runs of 30+ tokens, longest 42, so the overlap with NoCubes is within noise |
+
+### Different approach
+
+| | Smooth Terrain | NoCubes |
+|---|---|---|
+| Method | Surface Nets followed by Catmull-Clark subdivision on a solid/empty field | Surface Nets port (from a JavaScript library) on a float distance field, no subdivision |
+| Meshers | one | several |
+| Networking | none | yes |
+| License | MIT | LGPLv3 |
+
+Feature ideas such as Better Grass sides, snow, plant offsets and a block blacklist exist in both mods. Ideas are free; the code is not shared.
+
+### Limits of this comparison
+
+- It detects copied code and copies with renamed identifiers. It cannot detect a rewrite that only reuses logic.
+- The comparison covers Java source only (no resources, no mixin target data).
+- This repository was published as a single commit, so its development history cannot be inspected.
+- This is not a legal analysis. If you find a specific similarity or licensing issue, please open an issue.
+
 ## Contributing and reporting issues
 
 Describe the problem, reproduction steps and relevant Minecraft/mod versions. Before posting screenshots or logs, remove personal information and server addresses.
