@@ -1,0 +1,81 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version '1.17.1'
+}
+version = project.mod_version
+group = project.maven_group
+base { archivesName = 'smoothterrain-26.3' }
+repositories {
+    maven { url = 'https://maven.terraformersmc.com/releases/' }
+    maven { url = 'https://api.modrinth.com/maven'; content { includeGroup 'maven.modrinth' } }
+}
+// Optional renderer and settings integration; these mods are never bundled.
+def sodiumDependency = 'maven.modrinth:AANobbMI:v4PSXean'
+dependencies {
+    minecraft 'com.mojang:minecraft:26.3'
+    implementation 'net.fabricmc:fabric-loader:0.19.5'
+    compileOnly 'com.terraformersmc:modmenu:21.0.0'
+    compileOnly sodiumDependency
+    if (project.hasProperty('withSodium')) runtimeOnly sodiumDependency
+    if (project.hasProperty('withModMenu')) runtimeOnly 'com.terraformersmc:modmenu:21.0.0'
+}
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') { expand version: project.version }
+}
+tasks.withType(JavaCompile).configureEach { options.release = 25 }
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+}
+tasks.withType(AbstractArchiveTask).configureEach {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
+jar { from('LICENSE') }
+tasks.register('verifySmoothing', JavaExec) {
+    dependsOn testClasses
+    classpath = files(sourceSets.test.output, sourceSets.main.output)
+    mainClass = 'de.jorda.smoothterrain.SmoothingChecks'
+    enableAssertions = true
+}
+test { enabled = false } // The dependency-free geometry checks run through verifySmoothing.
+check.dependsOn verifySmoothing
+tasks.register('verifyReleaseJar') {
+    dependsOn jar
+    inputs.file(tasks.jar.archiveFile)
+    doLast {
+        def archive = new java.util.zip.ZipFile(tasks.jar.archiveFile.get().asFile)
+        try {
+            def names = archive.entries().collect { it.name }
+            def forbidden = names.findAll { n ->
+                n.contains('/qa/') || n.contains('smoothterrain_qa') || n.contains('RendererSelfTest') ||
+                n.contains('SmokeClient') || n.contains('SmoothingChecks') || n.contains('PerformanceChecks') ||
+                n.contains('WorldUVReference') || n.contains('UVEquivalenceChecks') ||
+                n.contains('SurfaceMeshReference') || n.contains('MeshEquivalenceChecks') ||
+                n.contains('RendererControl') || n.contains('smoothterrain_control') ||
+                n.endsWith('.log') || n.endsWith('.jar') || n.startsWith('net/caffeinemc/') || n.startsWith('net/irisshaders/')
+            }
+            if (!forbidden.empty) throw new GradleException("Non-production entries in release JAR: ${forbidden}")
+            def metadata = new groovy.json.JsonSlurper().parseText(archive.getInputStream(archive.getEntry('fabric.mod.json')).getText('UTF-8'))
+            if (metadata.version != project.version.toString() || metadata.authors != ['JoDka22'] || metadata.license != 'MIT')
+                throw new GradleException('Release metadata does not match version, author or license')
+            if (metadata.contact.homepage != 'https://modrinth.com/mod/smoothterrain') throw new GradleException('Incorrect project homepage')
+            if (!archive.getEntry(metadata.icon)) throw new GradleException('Release icon missing')
+            def signature = archive.getInputStream(archive.getEntry(metadata.icon)).withCloseable { it.readNBytes(8).encodeHex().toString() }
+            if (signature != '89504e470d0a1a0a') throw new GradleException('Icon is not a PNG')
+            names.findAll { it.endsWith('.json') }.each { name ->
+                def text = archive.getInputStream(archive.getEntry(name)).withCloseable { it.getText('UTF-8') }
+                if (text.contains('\uFFFD')) throw new GradleException("Invalid UTF-8 in ${name}")
+                new groovy.json.JsonSlurper().parseText(text)
+            }
+            logger.lifecycle('PASS: production-only JAR, metadata, icon and language resources')
+        } finally { archive.close() }
+    }
+}
+check.dependsOn verifyReleaseJar
+loom.mods {
+    smoothterrain { sourceSet sourceSets.main }
+}
+// Match the stack reserve used by the Minecraft launcher for shader compilation.
+loom.runs.client { vmArg '-XX:StackShadowPages=32' }

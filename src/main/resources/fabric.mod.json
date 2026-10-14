@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "smoothterrain",
+  "version": "${version}",
+  "name": "Smooth Terrain",
+  "description": "Rounded natural terrain with original pixel textures, biome colours, greener grass sides and anchored shores. Building materials and foliage retain their original models by default. Configure rounding and exclusions through Mod Menu.",
+  "authors": [
+    "JoDka22"
+  ],
+  "license": "MIT",
+  "contact": {
+    "homepage": "https://modrinth.com/mod/smoothterrain"
+  },
+  "custom": {
+    "smoothterrain:description_de": "Gerundetes natürliches Gelände mit Pixeltexturen, Biomfarben, grünen Grasseiten und verankerten Ufern. Baumaterialien und Blätter behalten standardmäßig ihre Originalmodelle. Rundung und Blacklist über Mod Menu; stabile Bewegung ist Standard."
+  },
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "de.jorda.smoothterrain.SmoothTerrain"
+    ],
+    "client": [
+      "de.jorda.smoothterrain.SmoothTerrainClient"
+    ],
+    "server": [
+      "de.jorda.smoothterrain.SmoothTerrainServer"
+    ],
+    "modmenu": [
+      "de.jorda.smoothterrain.SmoothTerrainModMenu"
+    ]
+  },
+  "suggests": {
+    "modmenu": "*"
+  },
+  "mixins": [
+    "smoothterrain.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "26.3",
+    "java": ">=25"
+  },
+  "breaks": {
+    "nocubes": "*"
+  },
+  "icon": "assets/smoothterrain/icon.png"
+}
