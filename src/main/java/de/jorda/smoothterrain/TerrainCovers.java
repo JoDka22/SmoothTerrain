@@ -4,6 +4,23 @@ import java.util.function.Consumer;
 
 /** Heap-only transition geometry; liquids themselves retain their vanilla mesh. */
 final class TerrainCovers {
+    /** Snow on an upward-bent side is a material replacement, not a coplanar
+     * overlay. Keep both original triangles, including their normals and UVs.
+     * Vertical cliffs and undersides retain their original block material. */
+    static void snowySide(SurfaceMesh.Quad q,Consumer<SurfaceMesh.Quad> sink) {
+        if(q.axis()==1) {sink.accept(q);return;}
+        boolean first=upward(q.a(),q.b(),q.c()),second=upward(q.a(),q.c(),q.d());
+        if(first==second) {sink.accept(first?snowMaterial(q):q);return;}
+        var a=new SurfaceMesh.Quad(q.a(),q.b(),q.c(),q.c(),q.source(),q.axis(),q.sign());
+        var b=new SurfaceMesh.Quad(q.a(),q.c(),q.d(),q.d(),q.source(),q.axis(),q.sign());
+        sink.accept(first?snowMaterial(a):a);sink.accept(second?snowMaterial(b):b);
+    }
+    private static boolean upward(SurfaceMesh.Point a,SurfaceMesh.Point b,SurfaceMesh.Point c) {
+        return b.position().minus(a.position()).cross(c.position().minus(a.position())).y()>1e-12;
+    }
+    private static SurfaceMesh.Quad snowMaterial(SurfaceMesh.Quad q) {
+        var s=q.source();return new SurfaceMesh.Quad(q.a(),q.b(),q.c(),q.d(),new SurfaceMesh.C(s.x(),s.y()+1,s.z()),q.axis(),q.sign());
+    }
     private static SurfaceMesh.Point point(SurfaceMesh.Point p,SurfaceMesh.V v) { return new SurfaceMesh.Point(v,p.normal(),p.u(),p.v()); }
     static void snow(SurfaceMesh.Quad q,double height,Consumer<SurfaceMesh.Quad> sink,java.util.function.IntToDoubleFunction neighbor) {
         if(q.axis()!=1||q.sign()!=1) return;

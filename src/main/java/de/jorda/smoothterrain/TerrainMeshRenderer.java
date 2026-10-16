@@ -138,7 +138,12 @@ public final class TerrainMeshRenderer {
             int currentGroup=group;
             bake(states,origin,group,groups[group],face->{
                 if(currentGroup==0) TerrainPlantOffsets.accept(face);
-                WorldUV.emit(face,emit);
+                var snowSource=face.source();
+                if(face.axis()!=1&&TerrainConfig.appearance().snow()
+                    &&states.get(snowSource.x(),snowSource.y()+1,snowSource.z()).getBlock() instanceof net.minecraft.world.level.block.SnowLayerBlock
+                    &&TerrainPlantOffsets.smoothSnow(states.get(snowSource.x(),snowSource.y()+1,snowSource.z()),states.get(snowSource.x(),snowSource.y(),snowSource.z())))
+                    TerrainCovers.snowySide(face,covered->WorldUV.emit(covered,emit));
+                else WorldUV.emit(face,emit);
                 emitSnow(face,states,emit);
                 if(currentGroup!=1&&TerrainConfig.appearance().shores()) {
                     var src=face.source();SurfaceMesh.C wet=face.axis()!=1?face.outside():null;
@@ -172,7 +177,7 @@ public final class TerrainMeshRenderer {
         if(snowBounds.present()) {
             for(int group=0;group<3;group++) {
             int snowGroup=group;
-            new SurfaceMesh((x,y,z)->states.volume(x,y,z,snowGroup),TerrainConfig.bakeRounding(),(x,y,z)->states.anchor(x,y,z,snowGroup))
+            new SurfaceMesh((x,y,z)->states.volume(x,y,z,snowGroup),TerrainConfig.bakeRounding(),(x,y,z)->states.anchor(x,y,z,snowGroup),snowGroup!=1)
                 .generateBox(origin.getX()+snowBounds.minX,origin.getY()+snowBounds.minY,origin.getZ()+snowBounds.minZ,
                     snowBounds.maxX-snowBounds.minX+1,snowBounds.maxY-snowBounds.minY+1,snowBounds.maxZ-snowBounds.minZ+1,2,
                     src->TerrainConfig.renderGroup(states.get(src.x(),src.y(),src.z()))==snowGroup&&TerrainPlantOffsets.replacesSnow(new BlockPos(src.x(),src.y()+1,src.z())),q->emitSnow(q,states,emit));
@@ -192,7 +197,7 @@ public final class TerrainMeshRenderer {
     }
     private static void bake(SectionStates states,BlockPos origin,int group,Bounds bounds,Consumer<SurfaceMesh.Quad> emit) {
         new SurfaceMesh((x,y,z)->states.volume(x,y,z,group),TerrainConfig.bakeRounding(),
-            (x,y,z)->states.anchor(x,y,z,group))
+            (x,y,z)->states.anchor(x,y,z,group),group!=1)
             .generateBox(origin.getX()+bounds.minX,origin.getY()+bounds.minY,origin.getZ()+bounds.minZ,
                 bounds.maxX-bounds.minX+1,bounds.maxY-bounds.minY+1,bounds.maxZ-bounds.minZ+1,
                 source->{

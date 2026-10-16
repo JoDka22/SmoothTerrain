@@ -27,10 +27,8 @@ public abstract class SodiumMeshingMixin {
 
     @WrapMethod(method=EXECUTE)
     private ChunkBuildOutput smoothterrain$scope(ChunkBuildContext context,CancellationToken token,Operation<ChunkBuildOutput> original) {
-        try(var scope=TerrainConfig.openBake()) {
-            TerrainPlantOffsets.begin();
-            try { return original.call(context,token); }
-            finally { TerrainPlantOffsets.end(); }
+        try(var scope=TerrainConfig.openBake();var plants=TerrainPlantOffsets.openScope()) {
+            return original.call(context,token);
         }
     }
 

@@ -28,6 +28,22 @@ public final class TerrainPlantOffsets {
         final Set<Long> snow=new HashSet<>();
     }
     private static final ThreadLocal<Bake> ACTIVE=new ThreadLocal<>();
+    public static final class Scope implements AutoCloseable {
+        private final Bake previous;
+        private boolean closed;
+        private Scope(Bake previous) {this.previous=previous;}
+        @Override public void close() {
+            if(closed)return;
+            closed=true;
+            if(previous==null)ACTIVE.remove();else ACTIVE.set(previous);
+        }
+    }
+    /** Each compiler owns its plant state; nested compilers must restore their caller. */
+    public static Scope openScope() {
+        Scope scope=new Scope(ACTIVE.get());
+        ACTIVE.remove();
+        return scope;
+    }
     public static void begin() { ACTIVE.remove(); }
     public static void end() { ACTIVE.remove(); }
     public static boolean enclosed() { Bake bake=ACTIVE.get();return bake!=null&&bake.enclosed; }
@@ -43,8 +59,7 @@ public final class TerrainPlantOffsets {
         }
     }
     static void collect(int x,int y,int z,BlockState state,States states) {
-            if(state.getBlock() instanceof net.minecraft.world.level.block.SnowLayerBlock&&TerrainConfig.appearance().snow()&&!TerrainConfig.ignored(state)
-                &&TerrainConfig.smooth(states.get(x,y-1,z))) { Bake bake=ACTIVE.get();if(bake!=null) bake.snow.add(BlockPos.asLong(x,y,z));return; }
+            if(state.getBlock() instanceof net.minecraft.world.level.block.SnowLayerBlock&&smoothSnow(state,states.get(x,y-1,z))) { Bake bake=ACTIVE.get();if(bake!=null) bake.snow.add(BlockPos.asLong(x,y,z));return; }
             if(!(state.getBlock() instanceof VegetationBlock)||!state.getFluidState().isEmpty()||TerrainConfig.ignored(state)) return;
             Bake bake=ACTIVE.get();
             if(bake==null) return;
@@ -56,6 +71,12 @@ public final class TerrainPlantOffsets {
             var key=new SurfaceMesh.C(root.getX(),root.getY(),root.getZ());
             Plant plant=bake.roots.computeIfAbsent(key,k->new Plant(root,states.get(bottom.getX(),bottom.getY(),bottom.getZ())));
             bake.plants.put(pos.asLong(),plant);
+    }
+    /** Material classification is independent of which section owns the layer.
+     * The replacement set itself still controls ownership of emitted snow caps. */
+    static boolean smoothSnow(BlockState state,BlockState support) {
+        return state.getBlock() instanceof net.minecraft.world.level.block.SnowLayerBlock&&TerrainConfig.appearance().snow()
+            &&!TerrainConfig.ignored(state)&&TerrainConfig.smooth(support);
     }
     static void accept(SurfaceMesh.Quad face) {
         Bake bake=ACTIVE.get();
@@ -79,7 +100,7 @@ public final class TerrainPlantOffsets {
         }
         if(maxX==Integer.MIN_VALUE) return;
         new SurfaceMesh((x,y,z)->TerrainConfig.renderVolume(states.get(x,y,z),0),TerrainConfig.bakeRounding(),
-            (x,y,z)->TerrainConfig.renderAnchor(states.get(x,y,z),0))
+            (x,y,z)->TerrainConfig.renderAnchor(states.get(x,y,z),0),true)
             .generateBox(minX-1,minY-1,minZ-1,maxX-minX+2,maxY-minY+2,maxZ-minZ+2,2,bake.roots::containsKey,TerrainPlantOffsets::accept);
     }
     public static double offset(BlockPos pos) {

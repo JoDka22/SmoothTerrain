@@ -15,8 +15,9 @@ public abstract class LevelChangeMixin {
         Level world=(Level)(Object)this;
         BlockState previous=world.getBlockState(pos);
         boolean before=TerrainConfig.volume(previous),fixed=TerrainConfig.meshAnchor(previous);
+        int group=TerrainConfig.renderGroup(previous);
         boolean changed=original.call(pos,state,flags,depth);
-        if(changed&&(before!=TerrainConfig.volume(state)||fixed!=TerrainConfig.meshAnchor(state))) TerrainCollision.invalidate(world,pos);
+        if(changed&&(before!=TerrainConfig.volume(state)||fixed!=TerrainConfig.meshAnchor(state)||group!=TerrainConfig.renderGroup(state))) TerrainCollision.invalidate(world,pos);
         return changed;
     }
 }

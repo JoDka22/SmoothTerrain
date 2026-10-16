@@ -36,14 +36,12 @@ public abstract class SectionCompilerMixin {
     private SectionCompiler.Results smoothterrain$scope(SectionPos section,RenderSectionRegion region,VertexSorting sorting,
             SectionBufferBuilderPack pack,Operation<SectionCompiler.Results> original) {
         RenderResources previous=smoothterrain$resources.get();
-        try(var scope=TerrainConfig.openBake();var resources=new RenderResources()) {
+        try(var scope=TerrainConfig.openBake();var plants=TerrainPlantOffsets.openScope();var resources=new RenderResources()) {
             smoothterrain$resources.set(resources);
-            TerrainPlantOffsets.begin();
             SectionCompiler.Results result;
             try {
                 result=original.call(section,region,sorting,pack);
             } finally {
-                TerrainPlantOffsets.end();
                 BlockModelLighter.clearCache();
             }
             resources.commit(); // Mesh ownership now belongs to Minecraft's upload task.

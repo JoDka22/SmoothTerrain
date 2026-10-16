@@ -6,6 +6,7 @@ import java.lang.management.ManagementFactory;
 
 public final class PerformanceChecks {
     public static void main(String[] args) {
+        if(Arrays.asList(args).contains("rectangular")){benchmarkRectangular();return;}
         SurfaceMesh.Field field=(x,y,z)->y<4+(Math.floorMod(x,9)/3)+(Math.floorMod(z,11)/4)
             || (x%7==0&&z%7==0&&y<13);
         long[] times=new long[100];long[] faces={0};
@@ -30,6 +31,30 @@ public final class PerformanceChecks {
         benchmarkUV();
     }
 
+    private static void benchmarkRectangular() {
+        var bean=(com.sun.management.ThreadMXBean)ManagementFactory.getThreadMXBean();
+        bean.setThreadAllocatedMemoryEnabled(true);
+        long thread=Thread.currentThread().threadId();
+        SurfaceMesh.Field field=(x,y,z)->y<1+Math.floorMod(x+z,3);
+        SurfaceMesh.Field anchor=(x,y,z)->Math.floorMod(x+2*y+3*z,17)==0;
+        for(int[] box:new int[][]{{3,5,3,7},{17,2,17,2},{2,17,17,7},{17,17,2,7}}) {
+            long[] times=new long[40],bytes=new long[40],faces={0},hash={0};
+            for(int pass=-20;pass<40;pass++) {
+                faces[0]=hash[0]=0;
+                long before=bean.getThreadAllocatedBytes(thread),start=System.nanoTime();
+                new SurfaceMesh(field,.8,anchor).generateBox(-4,0,-4,box[0],box[1],box[2],box[3],source->true,q->{
+                    faces[0]++;
+                    hash[0]=hash[0]*31+Double.doubleToLongBits(q.a().position().x());
+                    hash[0]=hash[0]*31+Double.doubleToLongBits(q.a().position().y());
+                    hash[0]=hash[0]*31+Double.doubleToLongBits(q.a().position().z());
+                });
+                if(pass>=0){times[pass]=System.nanoTime()-start;bytes[pass]=bean.getThreadAllocatedBytes(thread)-before;}
+            }
+            if(faces[0]==0)throw new AssertionError("Rectangular benchmark emitted no surfaces");
+            Arrays.sort(times);Arrays.sort(bytes);
+            System.out.printf(java.util.Locale.ROOT,"RECTANGULAR_BENCH: size=%dx%dx%d mask=%d median_ms=%.4f allocated_bytes=%d patches=%d hash=%016x warmup=20 samples=40%n",box[0],box[1],box[2],box[3],times[20]/1e6,bytes[20],faces[0],hash[0]);
+        }
+    }
     private static void benchmarkUV() {
         var bean=(com.sun.management.ThreadMXBean)ManagementFactory.getThreadMXBean();
         bean.setThreadAllocatedMemoryEnabled(true);

@@ -34,30 +34,35 @@ public final class SurfaceMesh {
     // Section-local arrays avoid hash lookups and repeated world reads. The five
     // block halo covers subdivision neighbors; a fallback keeps arbitrary calls safe.
     private static final class Samples {
-        final Field field;
-        int x,y,z,width;
+        @FunctionalInterface interface MaskField {int mask(int x,int y,int z);}
+        final MaskField field;
+        int x,y,z,width,height,depth;
         byte[] values;
-        final Map<C,Boolean> fallback=new HashMap<>();
-        Samples(Field field) { this.field=field; }
-        void begin(int x,int y,int z,int size) {
-            this.x=x-5;this.y=y-5;this.z=z-5;this.width=size+10;
-            values=new byte[width*width*width];fallback.clear();
+        final Map<C,Integer> fallback=new HashMap<>();
+        Samples(Field field) { this.field=(x,y,z)->field.solid(x,y,z)?1:0; }
+        Samples(MaskField field) {this.field=field;}
+        void begin(int x,int y,int z,int width,int height,int depth) {
+            this.x=x-5;this.y=y-5;this.z=z-5;
+            this.width=width+10;this.height=height+10;this.depth=depth+10;
+            values=new byte[this.width*this.height*this.depth];fallback.clear();
         }
-        boolean get(int x,int y,int z) {
+        boolean get(int x,int y,int z) {return mask(x,y,z)!=0;}
+        int mask(int x,int y,int z) {
             int dx=x-this.x,dy=y-this.y,dz=z-this.z;
-            if(values==null||dx<0||dy<0||dz<0||dx>=width||dy>=width||dz>=width)
-                return fallback.computeIfAbsent(new C(x,y,z),p->field.solid(p.x,p.y,p.z));
-            int index=(dz*width+dy)*width+dx;
+            if(values==null||dx<0||dy<0||dz<0||dx>=width||dy>=height||dz>=depth)
+                return fallback.computeIfAbsent(new C(x,y,z),p->field.mask(p.x,p.y,p.z));
+            int index=(dz*height+dy)*width+dx;
             byte value=values[index];
-            if(value==0) { value=(byte)(field.solid(x,y,z)?2:1);values[index]=value; }
-            return value==2;
+            if(value==0) { value=(byte)(field.mask(x,y,z)+1);values[index]=value; }
+            return value-1;
         }
     }
     private final Samples samples;
     private final Samples fixedSamples;
-    private final Map<C,Boolean> pinned=new HashMap<>();
+    private final Map<C,Integer> pinned=new HashMap<>();
     private static final double[][] UV={{0,0},{1,0},{1,1},{0,1}};
     private final double rounding;
+    private final Samples passageSamples;
     private final Map<C,V> rawVertices=new HashMap<>();
     private final Map<F,Raw> faces=new HashMap<>();
     private final Set<F> emptyFaces=new HashSet<>();
@@ -70,8 +75,15 @@ public final class SurfaceMesh {
         this(field,rounding,null);
     }
     public SurfaceMesh(Field field,double rounding,Field fixed) {
+        this(field,rounding,fixed,false);
+    }
+    /** Runtime terrain protects narrow openings per axis: clearance stays exact,
+     * while tangential coordinates can still round. Actual model anchors keep
+     * all three coordinates fixed. Pure mesher/reference callers opt in. */
+    public SurfaceMesh(Field field,double rounding,Field fixed,boolean preservePassages) {
         this.samples=new Samples(field);this.fixedSamples=fixed==null?null:new Samples(fixed);
         this.rounding=Double.isFinite(rounding)?Math.clamp(rounding,0.0,1.0):0.25;
+        this.passageSamples=preservePassages?new Samples((Samples.MaskField)this::passage):null;
     }
     private V blend(V original,V rounded) { return original.plus(rounded.minus(original).times(rounding)); }
     private boolean solid(C p) { return samples.get(p.x,p.y,p.z); }
@@ -80,16 +92,39 @@ public final class SurfaceMesh {
         for(int i=0;i<cells.length;i++) if(cells[i].equals(cell)) return i;
         return -1;
     }
-    private boolean pinned(C cell) {
-        if(fixedSamples==null) return false;
+    private int constraints(C cell) {
+        if(fixedSamples==null&&passageSamples==null) return 0;
         return pinned.computeIfAbsent(cell,k->{
-            for(int bits=0;bits<8;bits++) if(fixedSamples.get(k.x+(bits&1),k.y+((bits>>1)&1),k.z+((bits>>2)&1))) return true;
-            return false;
+            int axes=0;
+            for(int bits=0;bits<8;bits++) {
+                int x=k.x+(bits&1),y=k.y+((bits>>1)&1),z=k.z+((bits>>2)&1);
+                if(fixedSamples!=null&&fixedSamples.get(x,y,z))return 7;
+                if(passageSamples!=null)axes|=passageSamples.mask(x,y,z);
+            }
+            return axes;
         });
+    }
+    private V constrain(C cell,V p) {
+        int axes=constraints(cell);if(axes==0)return p;
+        return new V((axes&1)!=0?cell.x+1:p.x,(axes&2)!=0?cell.y+1:p.y,(axes&4)!=0?cell.z+1:p.z);
+    }
+    private int passage(int x,int y,int z) {
+        if(samples.get(x,y,z))return 0;
+        int axes=0;
+        if(samples.get(x-1,y,z)&&samples.get(x+1,y,z))axes|=1;
+        if(samples.get(x,y,z-1)&&samples.get(x,y,z+1))axes|=4;
+        // The end of a narrow shaft also has to retain its floor/ceiling.
+        // Otherwise tangential smoothing creates a small lip at its bottom.
+        if(axes!=0&&(samples.get(x,y-1,z)||samples.get(x,y+1,z)))axes|=2;
+        // Vertical enclosure of one or two air cells, independent of the
+        // player's current pose and shared by rendering and collisions.
+        if(samples.get(x,y-1,z)&&(samples.get(x,y+1,z)||samples.get(x,y+2,z))
+            ||samples.get(x,y-2,z)&&samples.get(x,y+1,z))axes|=2;
+        return axes;
     }
     private V rawVertex(C cell) {
         return rawVertices.computeIfAbsent(cell,k->{
-            if(pinned(k)) return new V(k.x+1,k.y+1,k.z+1);
+            if(constraints(k)==7) return new V(k.x+1,k.y+1,k.z+1);
             int mask=0,count=0;
             for(int bits=0;bits<8;bits++)
                 if(samples.get(k.x+(bits&1),k.y+((bits>>1)&1),k.z+((bits>>2)&1)))mask|=1<<bits;
@@ -104,7 +139,7 @@ public final class SurfaceMesh {
                 }
             }
             V corner=new V(k.x+1,k.y+1,k.z+1);
-            return count==0?corner:blend(corner,new V(sumX,sumY,sumZ).times(1.0/count));
+            return count==0?corner:constrain(k,blend(corner,new V(sumX,sumY,sumZ).times(1.0/count)));
         });
     }
 
@@ -153,7 +188,7 @@ public final class SurfaceMesh {
             for(C neighbor:neighbors) r=r.plus(p.plus(rawVertex(neighbor)).times(0.5));
             int n=neighbors.size();
             V smoothed=f.times(1.0/incident.size()).plus(r.times(2.0/n)).plus(p.times(n-3)).times(1.0/n);
-            return new Vertex(pinned(k)?p:blend(p,smoothed),normal.unit());
+            return new Vertex(constrain(k,blend(p,smoothed)),normal.unit());
         });
     }
 
@@ -167,7 +202,9 @@ public final class SurfaceMesh {
                 sum=sum.plus(f.center);normal=normal.plus(f.normal);count++;
             }
             V midpoint=rawVertex(a).plus(rawVertex(b)).times(0.5);
-            return new Vertex(pinned(a)&&pinned(b)?midpoint:blend(midpoint,sum.times(1.0/count)),normal.unit());
+            V rounded=blend(midpoint,sum.times(1.0/count));int axes=constraints(a)&constraints(b);
+            if(axes!=0)rounded=new V((axes&1)!=0?midpoint.x:rounded.x,(axes&2)!=0?midpoint.y:rounded.y,(axes&4)!=0?midpoint.z:rounded.z);
+            return new Vertex(rounded,normal.unit());
         });
     }
 
@@ -178,12 +215,12 @@ public final class SurfaceMesh {
         generateBox(x,y,z,width,height,depth,7,sources,consumer);
     }
     public void generateBox(int x,int y,int z,int width,int height,int depth,int axisMask,Predicate<C> sources,Consumer<Quad> consumer) {
-        int size=Math.max(width,Math.max(height,depth));
         if(width<=0||height<=0||depth<=0) return;
         // All geometry caches belong to the current field snapshot, not the object.
         pinned.clear();rawVertices.clear();faces.clear();emptyFaces.clear();incidentFaces.clear();vertices.clear();edges.clear();
-        samples.begin(x,y,z,size);
-        if(fixedSamples!=null) fixedSamples.begin(x,y,z,size);
+        samples.begin(x,y,z,width,height,depth);
+        if(fixedSamples!=null) fixedSamples.begin(x,y,z,width,height,depth);
+        if(passageSamples!=null)passageSamples.begin(x,y,z,width,height,depth);
         for(int dz=0;dz<depth;dz++) for(int dy=0;dy<height;dy++) for(int dx=0;dx<width;dx++) {
             int px=x+dx,py=y+dy,pz=z+dz;
             boolean solid=samples.get(px,py,pz);

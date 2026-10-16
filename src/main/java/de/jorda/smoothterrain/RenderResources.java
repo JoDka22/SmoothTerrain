@@ -8,7 +8,10 @@ public final class RenderResources implements AutoCloseable {
     private final List<AutoCloseable> owned=new ArrayList<>();
     private boolean committed,closed;
     public <T extends AutoCloseable> T track(T resource) {
-        if(resource!=null) try { owned.add(resource); }
+        if(resource!=null) try {
+            if(closed||committed)throw new IllegalStateException("Terrain mesh ownership is already closed or transferred");
+            owned.add(resource);
+        }
         catch(RuntimeException|Error failure) {
             // The mesh already owns native slices even if the ledger cannot grow.
             try {resource.close();} catch(Throwable cleanup) {suppress(failure,cleanup);}
@@ -16,7 +19,10 @@ public final class RenderResources implements AutoCloseable {
         }
         return resource;
     }
-    public void commit() { committed=true;owned.clear(); }
+    public void commit() {
+        if(closed)throw new IllegalStateException("Cannot transfer an already closed terrain mesh ledger");
+        committed=true;owned.clear();
+    }
     @Override public void close() {
         if(closed) return;closed=true;
         Throwable first=null;

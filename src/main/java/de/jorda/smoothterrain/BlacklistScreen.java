@@ -67,9 +67,17 @@ public final class BlacklistScreen extends Screen {
         return (tag?"#":"")+id;
     }
     private void updateSearch() {
+        matches=findMatches(query,candidates,entries);
+        String value=canonical(query);
+        add.active=value!=null&&!entries.contains(value);updateSuggestion();
+    }
+    static List<String> findMatches(String query,List<String> candidates,List<String> entries) {
         String normalized=query.trim().toLowerCase(Locale.ROOT);
-        matches=normalized.isEmpty()?List.of():candidates.stream().filter(id->id.contains(normalized)&&!entries.contains(id)).toList();
-        add.active=canonical(query)!=null&&!entries.contains(canonical(query));updateSuggestion();
+        if(normalized.isEmpty())return List.of();
+        // Large modpacks can have thousands of registry IDs and exclusions.
+        // Build membership once instead of scanning the full blacklist per ID.
+        Set<String> excluded=entries.isEmpty()?Set.of():new HashSet<>(entries);
+        return candidates.stream().filter(id->id.contains(normalized)&&!excluded.contains(id)).toList();
     }
     private void updateSuggestion() {
         suggestion.active=!matches.isEmpty();

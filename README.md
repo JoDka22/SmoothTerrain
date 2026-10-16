@@ -4,7 +4,7 @@
 
 A Fabric mod that rounds Minecraft's natural terrain while preserving pixel textures and biome colours.
 
-**Current release: 1.0.3 · Minecraft Java 26.3 · Java 25 · MIT**
+**Current release: 2.0.0 · Minecraft Java 26.3 · Java 25 · MIT**
 
 ## Features
 
@@ -19,7 +19,7 @@ Most building materials, leaves and logs retain their original models by default
 
 ## Downloads and installation
 
-Download the mod from [CurseForge](https://www.curseforge.com/minecraft/mc-mods/smoothterrain) or [Modrinth](https://modrinth.com/mod/smoothterrain).
+Download the current GitHub release from [GitHub Releases](https://github.com/JoDka22/SmoothTerrain/releases/latest). Other distribution pages are [CurseForge](https://www.curseforge.com/minecraft/mc-mods/smoothterrain) or [Modrinth](https://modrinth.com/mod/smoothterrain).
 
 Use Minecraft **26.3**, Fabric Loader **0.19.5 or newer**, and Java **25**. Place one Smooth Terrain JAR in the `mods` folder and remove older versions before updating. Existing settings are preserved.
 
@@ -59,7 +59,7 @@ For optional integrations:
 
 Checked renderer versions include Sodium **0.9.3-alpha.1+mc26.3** and Iris **1.11.7+mc26.3**, with Iris/Mellow rendering checks. Additional renderer, shader and mod combinations have been playtested by the author.
 
-Actual integrated-singleplayer movement checks cover uphill walking at 25/80/100% rounding, downhill walking, diagonal routes and repeated jumps with Vanilla and Sodium. Experimental movement remains opt-in. Safe movement preserves vanilla player and animal collisions; at high rounding the collision grid can differ from the visible surface. Live external multiplayer rounded movement is not certified.
+Automated singleplayer checks cover five rounding levels (0/25/50/80/100%), uphill/downhill movement, jumps, narrow passages, mixed-material boundaries and repeated jump-building beneath the player. The 2.0.0 release includes fixes for blocked pillar building and phantom collisions above narrow columns. Experimental movement remains opt-in. Safe Movement preserves vanilla player and animal collisions; at high rounding its collision grid can differ from the visible surface. Dedicated and remote multiplayer were not tested in the final audit. See [VALIDATION.md](VALIDATION.md) for the scope and limitations.
 
 See [CHANGELOG.md](CHANGELOG.md) for this release's changes and the scope of performance measurements.
 

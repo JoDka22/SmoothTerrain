@@ -4,6 +4,6 @@
   "plugin": "de.jorda.smoothterrain.SmoothTerrainMixinPlugin",
   "compatibilityLevel": "JAVA_25",
   "client": ["SectionCompilerMixin", "OutlineMixin", "ClientLevelChangeMixin", "ClientTagReloadMixin", "PlantOffsetMixin", "SodiumMeshingMixin", "SodiumSliceMixin", "SodiumLeafAccessor", "SodiumShaderContextMixin", "OptionsKeysMixin", "SettingsKeyMixin", "RoundedEscapeMixin"],
-  "mixins": ["BlockStateCollisionMixin", "ExperimentalMovementMixin", "ServerMovementValidationMixin", "LevelChangeMixin", "ServerTagReloadMixin"],
+  "mixins": ["BlockStateCollisionMixin", "BlockItemPlacementMixin", "ExperimentalMovementMixin", "ServerMovementValidationMixin", "LevelChangeMixin", "ServerTagReloadMixin"],
   "injectors": { "defaultRequire": 1 }
 }

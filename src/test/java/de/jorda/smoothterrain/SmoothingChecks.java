@@ -1,6 +1,19 @@
 package de.jorda.smoothterrain;
 import java.util.*;
 public final class SmoothingChecks {
+    private static void verifyRayTangencies() {
+        var random=new Random(201001);
+        var tangent=List.of(new MeshRay.Hit(1.5,false),new MeshRay.Hit(1.5,true),new MeshRay.Hit(1.5,false),new MeshRay.Hit(1.5,true));
+        for(int trial=0;trial<200;trial++) {
+            var hits=new ArrayList<>(tangent);Collections.shuffle(hits,random);
+            check(MeshRay.intervals(hits,2,4,true).isEmpty(),"Tangent ridge created a phantom pillar above its mesh");
+            hits=new ArrayList<>(tangent);hits.add(new MeshRay.Hit(1,false));hits.add(new MeshRay.Hit(2,true));Collections.shuffle(hits,random);
+            check(MeshRay.intervals(hits,0,4,false).equals(List.of(new MeshRay.Interval(1,2))),"Internal tangent changed solid interval");
+            hits=new ArrayList<>(List.of(new MeshRay.Hit(1,false),new MeshRay.Hit(1,false),new MeshRay.Hit(2,true),new MeshRay.Hit(2,true)));Collections.shuffle(hits,random);
+            check(MeshRay.intervals(hits,0,4,false).equals(List.of(new MeshRay.Interval(1,2))),"Coplanar duplicate changed solid interval");
+        }
+        System.out.println("PASS: 600 deterministic ray-tangency/order checks; no phantom solid above pillar ridges.");
+    }
     private static void verifyResourceOwnership() {
         int[] closed={0};
         var failure=new IllegalArgumentException("Injected mesh failure");
@@ -15,6 +28,20 @@ public final class SmoothingChecks {
         check(closed[0]==3,"A failed close skipped remaining mesh cleanup");
         try(var resources=new RenderResources()) { resources.track((AutoCloseable)()->closed[0]++);resources.commit(); }
         check(closed[0]==3,"Successful compiler handoff prematurely closed caller-owned meshes");
+        for(boolean commit:new boolean[]{false,true}) {
+            var resources=new RenderResources();
+            if(commit)resources.commit();else resources.close();
+            int[] lateClosed={0};
+            try {
+                resources.track((AutoCloseable)()->lateClosed[0]++);
+                throw new AssertionError("Inactive render ledger accepted a late mesh");
+            } catch(IllegalStateException expected) {
+                check(lateClosed[0]==1,"Rejected late mesh was not released immediately");
+            } finally {resources.close();}
+            check(lateClosed[0]==1,"Late mesh was released twice");
+            try {resources.commit();throw new AssertionError("Closed render ledger accepted ownership handoff");}
+            catch(IllegalStateException expected) {}
+        }
     }
     private static void check(boolean c,String message) { if(!c) throw new AssertionError(message); }
     private static double area(SurfaceMesh.Quad q) {
@@ -58,6 +85,12 @@ public final class SmoothingChecks {
         }}return edges;
     }
     public static void main(String[] args) {
+        verifyRayTangencies();
+        verifyDirectionalPassages();
+        verifySnowMaterials();
+        verifyPassagesAndVerticalWalls();
+        verifySeededVerticalVolumes();
+        verifySurfaceCoverage();
         verifyRayColumns();
         verifyCovers();
         verifyWorldUV();
@@ -155,6 +188,145 @@ public final class SmoothingChecks {
             }
         }
         System.out.println("PASS: watertight meshes, collision rays, section seams, mild rounding, exposed light samples and original UV orientation on all six sides.");
+    }
+    private static void verifyDirectionalPassages() {
+        for(double amount:new double[]{.25,.5,.8,1}) {
+            SurfaceMesh.Field shaft=(x,y,z)->Math.abs(x)<=3&&Math.abs(z)<=3&&y>=-3&&y<=3&&!(x==0&&z==0);
+            var mesh=new ArrayList<SurfaceMesh.Quad>();new SurfaceMesh(shaft,amount,null,true).generateBox(-5,-5,-5,11,11,11,s->true,mesh::add);
+            long roundedRim=mesh.stream().flatMap(q->Arrays.stream(q.points())).map(SurfaceMesh.Point::position)
+                .filter(p->(p.x()==0||p.x()==1)&&(p.z()==0||p.z()==1)&&p.y()>3&&p.y()<4).count();
+            check(roundedRim>0,"Shaft clearance unnecessarily freezes tangential rounding at "+amount);
+            SurfaceMesh.Field bottom=(x,y,z)->Math.abs(x)<=3&&Math.abs(z)<=3&&y>=-2&&y<=9&&(y<=0||y==9||x!=0||z!=0);
+            var closed=new ArrayList<SurfaceMesh.Quad>();new SurfaceMesh(bottom,amount,null,true).generateBox(-5,-4,-5,11,16,11,s->true,closed::add);
+            for(double x=.2;x<.81;x+=.05)for(double z=.2;z<.81;z+=.05)
+                check(MeshRay.solidIntervals(closed,x,z,1.000001,8.999999,false).isEmpty(),"Narrow shaft floor or ceiling protrudes into its clearance at "+amount);
+        }
+        System.out.println("PASS: passage width remains protected while shaft rims can round tangentially at 25/50/80/100 percent.");
+    }
+    private static void verifySnowMaterials() {
+        int painted=0,unpainted=0;
+        for(double amount:new double[]{0,.25,.5,.8,1}) {
+            var faces=generate((x,y,z)->x==0&&y==0&&z==0,-2,-2,-2,5,amount);
+            for(var q:faces)if(q.axis()!=1) {
+                var out=new ArrayList<SurfaceMesh.Quad>();TerrainCovers.snowySide(q,out::add);
+                check(Math.abs(out.stream().mapToDouble(SmoothingChecks::area).sum()-area(q))<1e-9,"Snow material replacement changes terrain area");
+                for(var r:out) {
+                    boolean up=r.b().position().minus(r.a().position()).cross(r.c().position().minus(r.a().position())).y()>1e-12;
+                    boolean snowy=r.source().y()==q.source().y()+1;
+                    check(up==snowy,"Snow was applied to vertical/downward geometry or omitted from an upward slope");
+                    for(var p:r.points())check(Arrays.asList(q.points()).contains(p),"Snow material moved a vertex");
+                    if(snowy)painted++;else unpainted++;
+                }
+            }
+        }
+        check(painted>0&&unpainted>0,"Snow material fixture misses slopes or cliffs");
+        System.out.println("PASS: snow slope materials preserve original triangle geometry; vertical walls and undersides remain unchanged.");
+    }
+    private static void verifyPassagesAndVerticalWalls() {
+        int checks=0;
+        for(double rounding:new double[]{0,.25,.5,.8,1}) {
+            for(int shift:new int[]{-17,0,15})for(int mode=0;mode<3;mode++) {
+                final int kind=mode;
+                SurfaceMesh.Field field=(x,y,z)->x>=shift-3&&x<=shift+3&&y>=-3&&y<=8&&z>=-3&&z<=3
+                    && !(kind==0?x==shift&&z==0:kind==1?z==0&&y>=0&&y<=1:x<shift&&z<0);
+                var full=new ArrayList<SurfaceMesh.Quad>();
+                new SurfaceMesh(field,rounding,null,true).generateBox(shift-5,-5,-5,11,16,11,s->true,full::add);
+                check(edges(full).values().stream().allMatch(n->n==2),"Protected passage mesh has a hole");
+                var tiled=new ArrayList<SurfaceMesh.Quad>();
+                new SurfaceMesh(field,rounding,null,true).generateBox(shift-5,-5,-5,5,16,11,s->true,tiled::add);
+                new SurfaceMesh(field,rounding,null,true).generateBox(shift,-5,-5,6,16,11,s->true,tiled::add);
+                check(edges(tiled).equals(edges(full)),"Passage protection differs across independently baked sections");
+                if(mode<2) {
+                    for(int a=0;a<12;a++)for(int b=0;b<12;b++) {
+                        double x=shift+.2+a*.05,z=.2+b*.05;
+                        double low=mode==0?0:.01,high=mode==0?5:1.99;
+                        var intervals=MeshRay.solidIntervals(full,x,z,low,high,false);
+                        check(intervals.isEmpty(),"Passage mesh contracted clearance at "+rounding+" mode="+mode);
+                        checks++;
+                    }
+                }
+                var patch=new ArrayList<SurfaceMesh.Quad>();
+                new SurfaceMesh(field,rounding,null,true).generateBox(shift-2,1,-2,3,5,3,s->true,patch::add);
+                var nearest=new MeshRay.NearestSurface(patch);
+                Random random=new Random(200316+mode);
+                for(int sample=0;sample<180;sample++) {
+                    double x=shift-1+random.nextDouble(),z=-1+random.nextDouble(),y=3+random.nextDouble();
+                    // Complete mesh ray is the independent closed-volume oracle.
+                    var exact=MeshRay.solidIntervals(full,x,z,-5,11,false);
+                    boolean expected=exact.stream().anyMatch(i->y>i.low()+1e-7&&y<i.high()-1e-7);
+                    // Test nearest sign even when this particular direction has
+                    // crossings; full mesh is closed well outside the samples.
+                    boolean actual=nearest.inside(x,y,z,field.solid((int)Math.floor(x),(int)Math.floor(y),(int)Math.floor(z)));
+                    check(actual==expected,"Nearest-surface sign disagrees with closed mesh at "+x+","+y+","+z+" round="+rounding+" mode="+mode);
+                    checks++;
+                }
+            }
+        }
+        System.out.println("PASS: "+checks+" passage-clearance and nearest vertical-wall sign checks across five rounding levels and negative/chunk-boundary coordinates.");
+    }
+    private static void verifySeededVerticalVolumes() {
+        int checked=0;Random samples=new Random(200017);
+        for(int seed=0;seed<16;seed++)for(double rounding:new double[]{0,.25,.5,.8,1}) {
+            Random cells=new Random(260016+seed);boolean[][] mask=new boolean[5][5];
+            for(int x=0;x<5;x++)for(int z=0;z<5;z++)mask[x][z]=cells.nextBoolean();
+            SurfaceMesh.Field field=(x,y,z)->x>=-2&&x<=2&&z>=-2&&z<=2&&y>=-3&&y<=8&&mask[x+2][z+2];
+            var full=new ArrayList<SurfaceMesh.Quad>();
+            new SurfaceMesh(field,rounding,null,true).generateBox(-4,-5,-4,9,16,9,s->true,full::add);
+            for(int px=-1;px<=1;px++)for(int pz=-1;pz<=1;pz++) {
+                var patch=new ArrayList<SurfaceMesh.Quad>();
+                new SurfaceMesh(field,rounding,null,true).generateBox(px-1,1,pz-1,3,5,3,s->true,patch::add);
+                var nearest=new MeshRay.NearestSurface(patch);
+                for(int trial=0;trial<12;trial++) {
+                    double x=px+.001+samples.nextDouble()*.998,z=pz+.001+samples.nextDouble()*.998,y=3.1+samples.nextDouble()*.8;
+                    var exact=MeshRay.solidIntervals(full,x,z,-5,11,false);
+                    boolean expected=exact.stream().anyMatch(i->y>i.low()&&y<i.high());
+                    boolean actual=nearest.inside(x,y,z,field.solid(px,3,pz));
+                    check(expected==actual,"Seeded vertical volume classification failed: seed="+seed+" rounding="+rounding+" at "+x+","+y+","+z);
+                    checked++;
+                }
+            }
+        }
+        System.out.println("PASS: "+checked+" deterministic vertical-volume samples agree with complete closed meshes (16 terrain seeds, five rounding levels).");
+    }
+    private static List<SurfaceMesh.V> clipSurface(List<SurfaceMesh.V> input,int axis,double boundary,boolean greater) {
+        if(input.isEmpty())return input;var result=new ArrayList<SurfaceMesh.V>();var a=input.getLast();
+        for(var b:input) {
+            double av=axis==0?a.x():axis==1?a.y():a.z(),bv=axis==0?b.x():axis==1?b.y():b.z();
+            boolean ai=greater?av>boundary:av<boundary,bi=greater?bv>boundary:bv<boundary;
+            if(ai!=bi)result.add(a.plus(b.minus(a).times((boundary-av)/(bv-av))));
+            if(bi)result.add(b);a=b;
+        }return result;
+    }
+    private static void verifySurfaceCoverage() {
+        Random random=new Random(200018);
+        for(int sample=0;sample<5000;sample++) {
+            var points=new ArrayList<SurfaceMesh.V>();
+            for(int i=0;i<3;i++)points.add(new SurfaceMesh.V(random.nextDouble()*2-.5,random.nextDouble()*2-.5,random.nextDouble()*2-.5));
+            List<SurfaceMesh.V> clipped=points;
+            for(int axis=0;axis<3;axis++){clipped=clipSurface(clipped,axis,1e-9,true);clipped=clipSurface(clipped,axis,1-1e-9,false);}
+            boolean expected=false;
+            for(int i=1;i<clipped.size()-1;i++) {
+                var cross=clipped.get(i).minus(clipped.getFirst()).cross(clipped.get(i+1).minus(clipped.getFirst()));
+                expected|=cross.dot(cross)>1e-18;
+            }
+            check(SurfaceVoxelizer.intersects(points.get(0),points.get(1),points.get(2),0,0,0,1,1,1)==expected,"Triangle/cell SAT differs from independent polygon clipping");
+        }
+        var a=new SurfaceMesh.V(0,0,0);var b=new SurfaceMesh.V(1,0,0);var c=new SurfaceMesh.V(0,0,1);
+        check(!SurfaceVoxelizer.intersects(a,b,c,0,0,0,1,1,1),"Flat floor acquired a spurious collision layer");
+        check(!SurfaceVoxelizer.intersects(a,b,a,0,0,0,1,1,1),"Degenerate triangle acquired collision volume");
+        for(double amount:new double[]{.25,.5,.8,1}) {
+            var mesh=generate((x,y,z)->x==0&&y==0&&z==0,-2,-2,-2,5,amount);
+            boolean[][][] covered=new boolean[8][32][8];
+            SurfaceVoxelizer.cover(mesh,0,0,0,8,32,(x,y,z)->covered[x][y][z]=true);
+            for(var q:mesh)for(int tri=0;tri<2;tri++)for(int point=0;point<30;point++) {
+                double u=random.nextDouble(),v=random.nextDouble()*(1-u);
+                var p=q.a().position().times(1-u-v).plus(q.point(tri==0?1:2).position().times(u)).plus(q.point(tri==0?2:3).position().times(v));
+                double sx=p.x()*8,sy=p.y()*32,sz=p.z()*8;
+                if(Math.abs(sx-Math.rint(sx))<1e-8||Math.abs(sy-Math.rint(sy))<1e-8||Math.abs(sz-Math.rint(sz))<1e-8)continue;
+                check(covered[(int)sx][(int)sy][(int)sz],"Conservative raster omitted a surface sample");
+            }
+        }
+        System.out.println("PASS: 5000 triangle/cell SAT comparisons against independent polygon clipping; conservative surface coverage, flat-floor contacts and degenerate triangles verified.");
     }
     private static void verifyRayColumns() {
         for(double rounding:new double[]{0,.25,.8,1}) {

@@ -112,11 +112,15 @@ public final class TerrainConfig {
             if(previous==null) BAKE.remove();else BAKE.set(previous);
         }
     }
-    public static synchronized BakeScope openBake() {
+    public static BakeScope openBake() {
         BakeData previous=BAKE.get();
         // Allocate the cleanup handle before publishing a thread-local snapshot.
         BakeScope scope=new BakeScope(previous);
-        if(previous==null) BAKE.set(new BakeData(enabled,rounding,allBlocks,blocks,fullStates,modelAnchors,filterState,FILTER_REVISION.get(),appearance));
+        // A nested compiler/collider already owns an immutable snapshot. Do not
+        // wait for a UI writer (including its disk I/O) to reuse that snapshot.
+        if(previous==null) synchronized(TerrainConfig.class) {
+            BAKE.set(new BakeData(enabled,rounding,allBlocks,blocks,fullStates,modelAnchors,filterState,FILTER_REVISION.get(),appearance));
+        }
         return scope;
     }
     public static boolean bakeEnabled() { BakeData data=BAKE.get();return data==null?enabled:data.enabled; }
